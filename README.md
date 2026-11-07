@@ -10,6 +10,8 @@ I have removed features that the original author did not implement and those wit
 
 Requires Node.js 22 or newer.
 
+See [CHANGELOG.md](CHANGELOG.md) for release notes and upgrade requirements.
+
 ```sh
 npm install hexo-search-engine-submit
 ```
