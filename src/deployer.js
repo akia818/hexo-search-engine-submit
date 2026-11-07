@@ -1,8 +1,5 @@
 const path = require('path');
 const util = require('./utils');
-const Google = require('./google_submit');
-const Baidu = require('./baidu_submit');
-const Bing = require('./bing_submit');
 
 async function deploy(args) {
     try {
@@ -18,8 +15,11 @@ async function deploy(args) {
         }
 
         // Read URLs from file
-        const f_path = path.join(this.config.public_dir, this.config.search_engine_submit.file_path);
-        const submit_urls = util.readUrls(f_path);
+        const config_ses = this.config.search_engine_submit;
+        const baseDir = this.base_dir || process.cwd();
+        const publicDir = this.public_dir || path.resolve(baseDir, this.config.public_dir || 'public');
+        const f_path = path.join(publicDir, config_ses.file_path || 'submit_urls.txt');
+        const submit_urls = await util.readUrls(f_path);
         
         if (!submit_urls || submit_urls.length === 0) {
             this.log.warn('No URLs found to submit');
@@ -27,12 +27,11 @@ async function deploy(args) {
         }
         this.log.info(`Found ${submit_urls.length} URLs to submit`);
 
-        // Initialize search engine instances
-        const config_ses = this.config.search_engine_submit;
+        // Load each engine inside its error boundary.
         const engines = {
-            google: new Google(this.log, config_ses.google, submit_urls),
-            bing: new Bing(this.log, config_ses.bing, submit_urls),
-            baidu: new Baidu(this.log, config_ses.baidu, submit_urls)
+            Google: './google_submit',
+            Bing: './bing_submit',
+            Baidu: './baidu_submit'
         };
 
         // Parse website domain
@@ -42,30 +41,29 @@ async function deploy(args) {
         // Submit URLs to search engines sequentially
         this.log.info('Start submitting URLs to search engines...\n');
         
-        // Google submission
-        try {
-            await engines.google.submit(host);
-        } catch (err) {
-            this.log.error('Google submission failed:', err);
-        }
+        for (const [name, modulePath] of Object.entries(engines)) {
+            const engineConfig = config_ses[name.toLowerCase()];
+            if (!engineConfig) {
+                continue;
+            }
 
-        // Bing submission
-        try {
-            await engines.bing.submit(host);
-        } catch (err) {
-            this.log.error('Bing submission failed:', err);
-        }
+            try {
+                if (util.getSubmitCount(engineConfig) === 0) {
+                    this.log.info(`Skip ${name}.\n`);
+                    continue;
+                }
 
-        // Baidu submission
-        try {
-            await engines.baidu.submit(host);
-        } catch (err) {
-            this.log.error('Baidu submission failed:', err);
+                const Engine = require(modulePath);
+                const engine = new Engine(this.log, engineConfig, submit_urls, baseDir);
+                await engine.submit(host);
+            } catch (err) {
+                this.log.error(`${name} submission failed:`, err.message);
+            }
         }
 
         this.log.info('URL submission completed');
     } catch (err) {
-        this.log.error('URL submission failed:', err);
+        this.log.error('URL submission failed:', err.message);
     }
 }
 

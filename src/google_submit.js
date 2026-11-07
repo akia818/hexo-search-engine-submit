@@ -1,21 +1,27 @@
-const { google } = require('googleapis');
+const path = require('path');
+const fs = require('fs/promises');
+const { auth, indexing } = require('googleapis/build/src/apis/indexing');
 const SearchEngineBase = require('./searchengine');
 
 class Google extends SearchEngineBase {
-    constructor(log, config, urls) {
+    constructor(log, config, urls, baseDir = process.cwd()) {
         super(log, config, urls);
 
-        let key_file = this.config.key_file;
-        key_file = key_file ?? 'google.json';
-
-        this.auth = new google.auth.GoogleAuth({
-            keyFile: key_file,
-            scopes: ['https://www.googleapis.com/auth/indexing'],
-        });
+        this.keyFile = path.resolve(baseDir, this.config.key_file || 'google.json');
     }
 
     async #submitUrlBatch(urls, batchSize = 100) {
-        const indexing = google.indexing({
+        const credentials = JSON.parse(await fs.readFile(this.keyFile, 'utf8'));
+        if (!credentials.client_email || !credentials.private_key) {
+            throw new TypeError('Google service account key must include client_email and private_key');
+        }
+        this.auth = new auth.JWT({
+            email: credentials.client_email,
+            key: credentials.private_key,
+            scopes: ['https://www.googleapis.com/auth/indexing'],
+            transporterOptions: { timeout: this.timeout }
+        });
+        const client = indexing({
             auth: this.auth,
             version: 'v3'
         });
@@ -27,12 +33,12 @@ class Google extends SearchEngineBase {
         for (let i = 0; i < urls.length; i += batchSize) {
             const chunk = urls.slice(i, i + batchSize);
             const promises = chunk.map(url => 
-                indexing.urlNotifications.publish({
+                client.urlNotifications.publish({
                     requestBody: {
                         url: url,
                         type: 'URL_UPDATED'
                     }
-                }).catch(error => {
+                }, { timeout: this.timeout }).catch(error => {
                     errors.push({ url, error });
                     return null;
                 })
@@ -51,9 +57,7 @@ class Google extends SearchEngineBase {
     }
 
     async submit(host) {
-        let count = this.config.count;
-        count = count ?? this.count;
-        const submitCount = Math.min(count, this.urls.length);
+        const submitCount = Math.min(this.count, this.urls.length);
 
         if (submitCount > 0) {
             this.log.info(`===== Submitting ${submitCount} Google urls start. =====`);

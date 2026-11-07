@@ -9,8 +9,10 @@ class Bing extends SearchEngineBase {
     async getQuotaLimit(host, token) {
         try {
             const resp = await axios.get(
-                `https://ssl.bing.com/webmaster/api.svc/json/GetUrlSubmissionQuota?siteUrl=${host}&apikey=${token}`,
+                'https://ssl.bing.com/webmaster/api.svc/json/GetUrlSubmissionQuota',
                 {
+                    params: { siteUrl: host, apikey: token },
+                    timeout: this.timeout,
                     headers: {
                         'Content-Type': 'application/json'
                     }
@@ -18,17 +20,22 @@ class Bing extends SearchEngineBase {
             );
             return resp.data.d.DailyQuota;
         } catch (err) {
-            this.log.error('Failed to get Bing quota:', err);
+            this.log.error('Failed to get Bing quota:', err.message);
             return 0;
         }
     }
 
     async submit(host) {
-        let { token, count } = this.config;
-        token = token || process.env.BING_TOKEN;
-        count = count ?? this.count;
+        const submitLimit = Math.min(this.count, this.urls.length);
+        if (submitLimit === 0) {
+            this.log.info('Skip Bing.\n');
+            return;
+        }
 
-        if (!token || token.length == 0) {
+        let { token } = this.config;
+        token = token || process.env.BING_TOKEN;
+
+        if (typeof token !== 'string' || token.trim().length === 0) {
             this.log.error('Bing token is invalid, please set it within the _config.yml or via environment variable BING_TOKEN');
             return;
         }
@@ -40,7 +47,7 @@ class Bing extends SearchEngineBase {
             return;
         }
 
-        const submitCount = Math.min(quota, count, this.urls.length);
+        const submitCount = Math.min(quota, submitLimit);
 
         if (submitCount > 0) {
             this.log.info(`===== Submitting ${submitCount} Bing urls in batch. =====`);
@@ -50,19 +57,23 @@ class Bing extends SearchEngineBase {
             urlList.forEach(url => this.log.info(url));
 
             try {
-                const resp = await axios.post(
-                    `https://ssl.bing.com/webmaster/api.svc/json/SubmitUrlBatch?apikey=${token}`,
-                    {
-                        "siteUrl": host,
-                        "urlList": urlList
-                    },
-                    {
-                        headers: {
-                            'Content-Type': 'application/json'
+                for (let i = 0; i < urlList.length; i += 500) {
+                    const resp = await axios.post(
+                        'https://ssl.bing.com/webmaster/api.svc/json/SubmitUrlBatch',
+                        {
+                            "siteUrl": host,
+                            "urlList": urlList.slice(i, i + 500)
+                        },
+                        {
+                            params: { apikey: token },
+                            timeout: this.timeout,
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
                         }
-                    }
-                );
-                this.log.info('Bing batch submission response: ', resp.data);
+                    );
+                    this.log.info('Bing batch submission response: ', resp.data);
+                }
             } catch (err) {
                 if (err.response) {
                     this.log.error('Bing batch submission error: ', err.response.data);

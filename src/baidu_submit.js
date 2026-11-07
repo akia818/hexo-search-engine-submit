@@ -7,24 +7,31 @@ class Baidu extends SearchEngineBase {
     }
 
     async submit(host) {
-        let { token, count } = this.config;
-        token = token || process.env.BAIDU_TOKEN;
-        count = count ?? this.count;
+        const submitCount = Math.min(this.count, this.urls.length);
+        if (submitCount === 0) {
+            this.log.info('Skip Baidu.\n');
+            return;
+        }
 
-        if (token?.length == 0) {
+        let { token } = this.config;
+        token = token || process.env.BAIDU_TOKEN;
+
+        if (typeof token !== 'string' || token.trim().length === 0) {
             this.log.error('Baidu token is invalid, please set it within the _config.yml or via environment variable BAIDU_TOKEN');
             return;
         }
 
-        if (count > 0) {
+        if (submitCount > 0) {
             this.log.info("===== Submitting Baidu urls start. =====");
 
             try {
-                const postData = this.urls.slice(0, count).join('\n');
+                const postData = this.urls.slice(0, submitCount).join('\n');
                 const resp = await axios.post(
-                    `http://data.zz.baidu.com/urls?site=${host}&token=${token}`,
+                    'http://data.zz.baidu.com/urls',
                     postData,
                     {
+                        params: { site: host, token },
+                        timeout: this.timeout,
                         headers: {
                             'Content-Type': 'text/plain'
                         }

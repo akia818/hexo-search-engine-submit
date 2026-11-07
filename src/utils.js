@@ -1,19 +1,23 @@
-const fs = require('fs');
-const path = require('path');
+const fs = require('fs/promises');
 
+function getSubmitCount(config) {
+    const value = config?.count ?? process.env.HEXO_SEO_SUBMIT_COUNT ?? 10;
+    const count = Number(value);
 
-function readUrls(filePath) {
-    try {
-        const data = fs.readFileSync(filePath, 'utf8');
-        const urls = data.split('\n').map(line => line.trim()).filter(line => line);
-
-        return urls;
-    } catch (err) {
-        console.error('Error reading file:', err);
+    if (!['number', 'string'].includes(typeof value) ||
+        String(value).trim() === '' || !Number.isSafeInteger(count) || count < 0) {
+        throw new TypeError('Submission count must be a non-negative integer');
     }
+
+    return count;
 }
 
+async function readUrls(filePath) {
+    const data = await fs.readFile(filePath, 'utf8');
+    return [...new Set(data.split(/\r?\n/).map(line => line.trim()).filter(Boolean))];
+}
 
 module.exports = {
+    getSubmitCount,
     readUrls
-}
+};
